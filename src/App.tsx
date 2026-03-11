@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import Tesseract from "tesseract.js";
 
 type Shift = {
   id: number;
@@ -67,9 +66,9 @@ type UnsocialSummary = {
   unsocialEnhancementPay: number;
 };
 
-const STORAGE_KEY = "awsl_clean_v15_shifts";
-const SETTINGS_KEY = "awsl_clean_v15_settings";
-const TEMPLATE_KEY = "awsl_clean_v15_templates";
+const STORAGE_KEY = "awsl_clean_v17_shifts";
+const SETTINGS_KEY = "awsl_clean_v17_settings";
+const TEMPLATE_KEY = "awsl_clean_v17_templates";
 const GRS_URL = "https://swast-web.grs.totalmobile-cloud.com/Frontend/Dashboard.aspx";
 
 const DEFAULT_SETTINGS: Settings = {
@@ -161,20 +160,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     padding: "12px 14px",
   },
-  uploadButton: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 46,
-    borderRadius: 12,
-    border: "1px solid #cbd5e1",
-    background: "#fff",
-    color: "#0f172a",
-    fontSize: 15,
-    fontWeight: 600,
-    padding: "12px 14px",
-    cursor: "pointer",
-  },
   uploadButtonBlock: {
     display: "flex",
     alignItems: "center",
@@ -193,16 +178,16 @@ const styles: Record<string, React.CSSProperties> = {
   },
 };
 
-function getTodayDate() {
+function getTodayDate(): string {
   const today = new Date();
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 }
 
-function getMonthKey(date = new Date()) {
+function getMonthKey(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function getMonthLabel(monthKey: string) {
+function getMonthLabel(monthKey: string): string {
   const [y, m] = monthKey.split("-").map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString("en-GB", {
     month: "long",
@@ -224,90 +209,50 @@ function defaultDraft(): Draft {
   };
 }
 
-function toMinutes(time: string) {
+function toMinutes(time: string): number {
   const [h, m] = time.split(":").map(Number);
   return h * 60 + m;
 }
 
-function durationMinutes(start: string, end: string) {
+function durationMinutes(start: string, end: string): number {
   const s = toMinutes(start);
   const e = toMinutes(end);
   return e >= s ? e - s : 1440 - s + e;
 }
 
-function mealBreakMinutes(worked: number) {
+function mealBreakMinutes(worked: number): number {
   return worked >= 720 ? 60 : 30;
 }
 
-function paidMinutes(start: string, end: string) {
+function paidMinutes(start: string, end: string): number {
   const worked = durationMinutes(start, end);
   return Math.max(0, worked - mealBreakMinutes(worked));
 }
 
-function overtimeMinutes(rosteredEnd: string, end: string) {
+function overtimeMinutes(rosteredEnd: string, end: string): number {
   const r = toMinutes(rosteredEnd);
   const e = toMinutes(end);
   if (e === r) return 0;
   return e > r ? e - r : 1440 - r + e;
 }
 
-function formatMinutes(mins: number) {
+function formatMinutes(mins: number): string {
   const safe = Math.max(0, Math.round(mins || 0));
   return `${Math.floor(safe / 60)}h ${safe % 60}m`;
 }
 
-function formatDate(date: string) {
+function formatDate(date: string): string {
   const [y, m, d] = date.split("-");
   return `${d}/${m}/${y}`;
 }
 
-function getDateTime(date: string, time: string) {
+function getDateTime(date: string, time: string): Date {
   const [y, m, d] = date.split("-").map(Number);
   const [hh, mm] = time.split(":").map(Number);
   return new Date(y, m - 1, d, hh, mm, 0, 0);
 }
 
-function normaliseJobNumber(text: string) {
-  const source = (text || "").replace(/\r/g, "\n");
-  const lines = source
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const preferredKeywords = ["job", "incident", "case", "cad", "ref", "number", "no"];
-
-  const extractCandidates = (value: string) => {
-    const cleaned = value.replace(/[^0-9\n ]/g, " ");
-    const matches = cleaned.match(/\d{6,10}/g) || [];
-    return matches.map((match) => match.trim());
-  };
-
-  const scoreCandidate = (candidate: string, line: string) => {
-    let score = 0;
-    if (candidate.length === 8) score += 100;
-    else if (candidate.length === 7) score += 60;
-    else if (candidate.length === 6) score += 40;
-    else score += 10;
-
-    const lowerLine = line.toLowerCase();
-    if (preferredKeywords.some((keyword) => lowerLine.includes(keyword))) score += 50;
-    if (/^[0-9]+$/.test(line.replace(/\s/g, ""))) score += 20;
-    return score;
-  };
-
-  const scored = lines.flatMap((line) =>
-    extractCandidates(line).map((candidate) => ({
-      candidate,
-      score: scoreCandidate(candidate, line),
-    })),
-  );
-
-  if (scored.length === 0) return "";
-  scored.sort((a, b) => b.score - a.score || b.candidate.length - a.candidate.length);
-  return scored[0].candidate;
-}
-
-function isValidJobNumber(value: string) {
+function isValidJobNumber(value: string): boolean {
   return !value.trim() || /^\d{6,10}$/.test(value.trim());
 }
 
@@ -438,11 +383,12 @@ function pdfRows(shifts: Shift[]) {
   ]);
 }
 
-function downloadBlob(blob: Blob, filename: string) {
+function downloadBlob(blob: Blob, filename: string): void {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = filename;
   a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 function useStoredState<T>(key: string, fallback: T) {
@@ -462,12 +408,11 @@ function useStoredState<T>(key: string, fallback: T) {
   return [value, setValue] as const;
 }
 
-function runSmokeTests() {
+function runSmokeTests(): void {
   console.assert(durationMinutes("07:00", "19:00") === 720, "durationMinutes failed");
   console.assert(paidMinutes("07:00", "19:00") === 660, "paidMinutes failed");
   console.assert(overtimeMinutes("19:00", "19:30") === 30, "overtimeMinutes failed");
   console.assert(isValidJobNumber("12345678"), "isValidJobNumber failed");
-  console.assert(normaliseJobNumber("Job number 12345678") === "12345678", "normaliseJobNumber failed");
 }
 
 runSmokeTests();
@@ -482,8 +427,6 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showTemplateEditor, setShowTemplateEditor] = useState(false);
   const [error, setError] = useState("");
-  const [ocrBusy, setOcrBusy] = useState(false);
-  const [ocrStatus, setOcrStatus] = useState("");
 
   const worked = useMemo(() => durationMinutes(draft.start, draft.end), [draft.start, draft.end]);
   const paid = useMemo(() => paidMinutes(draft.start, draft.end), [draft.start, draft.end]);
@@ -514,7 +457,6 @@ export default function App() {
     setEditingId(null);
     setDraft(defaultDraft());
     setError("");
-    setOcrStatus("");
   }
 
   function startEdit(shift: Shift) {
@@ -558,28 +500,6 @@ export default function App() {
       mealBreakOffStation: shift.mealBreakOffStation,
     };
     setShifts((current) => [buildShift(duplicatedDraft, settings), ...current]);
-  }
-
-  async function handleOCR(file: File) {
-    setOcrBusy(true);
-    setOcrStatus("Scanning image...");
-    try {
-      const result = await Tesseract.recognize(file, "eng", {
-        tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT,
-        tessedit_char_whitelist: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz:-# ",
-      });
-      const found = normaliseJobNumber(result.data?.text || "");
-      setOcrStatus(
-        found
-          ? `Found likely job number: ${found}`
-          : "No likely 6 to 10 digit job number found. Try cropping closer to the over-run number.",
-      );
-      if (found) setDraft((d) => ({ ...d, jobNumber: found }));
-    } catch {
-      setOcrStatus("OCR failed. Please type the job number manually.");
-    } finally {
-      setOcrBusy(false);
-    }
   }
 
   function addTemplate() {
@@ -633,13 +553,13 @@ export default function App() {
           : null;
       const importedTemplates =
         Array.isArray(parsed?.templates) && parsed.templates.length > 0 ? parsed.templates : null;
+
       setShifts(importedShifts);
       if (importedSettings) setSettings(importedSettings);
       if (importedTemplates) setTemplates(importedTemplates);
       setEditingId(null);
       setDraft(defaultDraft());
       setError("");
-      setOcrStatus("Backup restored successfully.");
     } catch {
       setError("Could not import backup file.");
     }
@@ -719,9 +639,6 @@ export default function App() {
           applyTemplate={applyTemplate}
           draft={draft}
           setDraft={setDraft}
-          ocrBusy={ocrBusy}
-          handleOCR={handleOCR}
-          ocrStatus={ocrStatus}
           worked={worked}
           paid={paid}
           overtime={overtime}
@@ -862,9 +779,7 @@ function SettingsSection({
         </div>
       )}
 
-      <p className="text-sm text-slate-600">
-        The app uses values saved in settings. It does not fetch live NHS pay rates.
-      </p>
+      <p className="text-sm text-slate-600">The app uses values saved in settings. It does not fetch live NHS pay rates.</p>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Field label="AfC Band Preset">
@@ -949,9 +864,6 @@ function ShiftFormSection({
   applyTemplate,
   draft,
   setDraft,
-  ocrBusy,
-  handleOCR,
-  ocrStatus,
   worked,
   paid,
   overtime,
@@ -968,9 +880,6 @@ function ShiftFormSection({
   applyTemplate: (template: ShiftTemplate) => void;
   draft: Draft;
   setDraft: React.Dispatch<React.SetStateAction<Draft>>;
-  ocrBusy: boolean;
-  handleOCR: (file: File) => Promise<void>;
-  ocrStatus: string;
   worked: number;
   paid: number;
   overtime: number;
@@ -1060,31 +969,6 @@ function ShiftFormSection({
             />
           </Field>
         </div>
-      )}
-
-      {overtime > 0 && (
-        <>
-          <div className="mt-4 rounded-2xl border border-dashed border-slate-300 p-4">
-            <div className="mb-2 text-sm font-semibold">OCR Scan Job Number</div>
-            <div className="mb-3 text-sm text-slate-600">Use your phone camera or upload a tight crop of the over-run number.</div>
-            <label style={styles.uploadButton}>
-              {ocrBusy ? "Scanning..." : "Open Camera / Upload"}
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                disabled={ocrBusy}
-                style={{ display: "none" }}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleOCR(file);
-                  e.currentTarget.value = "";
-                }}
-              />
-            </label>
-          </div>
-          {ocrStatus && <p className="mt-2 text-sm text-slate-600">{ocrStatus}</p>}
-        </>
       )}
 
       <div className="mt-3">
