@@ -67,9 +67,9 @@ type UnsocialSummary = {
   unsocialEnhancementPay: number;
 };
 
-const STORAGE_KEY = "awsl_clean_v12_shifts";
-const SETTINGS_KEY = "awsl_clean_v12_settings";
-const TEMPLATE_KEY = "awsl_clean_v12_templates";
+const STORAGE_KEY = "awsl_clean_v15_shifts";
+const SETTINGS_KEY = "awsl_clean_v15_settings";
+const TEMPLATE_KEY = "awsl_clean_v15_templates";
 const GRS_URL = "https://swast-web.grs.totalmobile-cloud.com/Frontend/Dashboard.aspx";
 
 const DEFAULT_SETTINGS: Settings = {
@@ -204,7 +204,10 @@ function getMonthKey(date = new Date()) {
 
 function getMonthLabel(monthKey: string) {
   const [y, m] = monthKey.split("-").map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+  return new Date(y, m - 1, 1).toLocaleDateString("en-GB", {
+    month: "long",
+    year: "numeric",
+  });
 }
 
 function defaultDraft(): Draft {
@@ -265,13 +268,47 @@ function getDateTime(date: string, time: string) {
 }
 
 function normaliseJobNumber(text: string) {
-  const cleaned = (text || "").replace(/[^0-9]/g, "");
-  const match = cleaned.match(/\d{4,}/);
-  return match ? match[0] : "";
+  const source = (text || "").replace(/\r/g, "\n");
+  const lines = source
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const preferredKeywords = ["job", "incident", "case", "cad", "ref", "number", "no"];
+
+  const extractCandidates = (value: string) => {
+    const cleaned = value.replace(/[^0-9\n ]/g, " ");
+    const matches = cleaned.match(/\d{6,10}/g) || [];
+    return matches.map((match) => match.trim());
+  };
+
+  const scoreCandidate = (candidate: string, line: string) => {
+    let score = 0;
+    if (candidate.length === 8) score += 100;
+    else if (candidate.length === 7) score += 60;
+    else if (candidate.length === 6) score += 40;
+    else score += 10;
+
+    const lowerLine = line.toLowerCase();
+    if (preferredKeywords.some((keyword) => lowerLine.includes(keyword))) score += 50;
+    if (/^[0-9]+$/.test(line.replace(/\s/g, ""))) score += 20;
+    return score;
+  };
+
+  const scored = lines.flatMap((line) =>
+    extractCandidates(line).map((candidate) => ({
+      candidate,
+      score: scoreCandidate(candidate, line),
+    })),
+  );
+
+  if (scored.length === 0) return "";
+  scored.sort((a, b) => b.score - a.score || b.candidate.length - a.candidate.length);
+  return scored[0].candidate;
 }
 
 function isValidJobNumber(value: string) {
-  return !value.trim() || /^\d{4,}$/.test(value.trim());
+  return !value.trim() || /^\d{6,10}$/.test(value.trim());
 }
 
 function calculateUnsocial(draft: Draft, settings: Settings): UnsocialSummary {
@@ -412,7 +449,7 @@ function useStoredState<T>(key: string, fallback: T) {
   const [value, setValue] = useState<T>(() => {
     try {
       const raw = localStorage.getItem(key);
-      return raw ? JSON.parse(raw) : fallback;
+      return raw ? (JSON.parse(raw) as T) : fallback;
     } catch {
       return fallback;
     }
@@ -424,6 +461,16 @@ function useStoredState<T>(key: string, fallback: T) {
 
   return [value, setValue] as const;
 }
+
+function runSmokeTests() {
+  console.assert(durationMinutes("07:00", "19:00") === 720, "durationMinutes failed");
+  console.assert(paidMinutes("07:00", "19:00") === 660, "paidMinutes failed");
+  console.assert(overtimeMinutes("19:00", "19:30") === 30, "overtimeMinutes failed");
+  console.assert(isValidJobNumber("12345678"), "isValidJobNumber failed");
+  console.assert(normaliseJobNumber("Job number 12345678") === "12345678", "normaliseJobNumber failed");
+}
+
+runSmokeTests();
 
 export default function App() {
   const [selectedMonth] = useState(getMonthKey());
@@ -456,7 +503,7 @@ export default function App() {
       return;
     }
     if (!isValidJobNumber(draft.jobNumber)) {
-      setError("Job number must contain only numbers.");
+      setError("Job number must be 6 to 10 digits.");
       return;
     }
 
@@ -517,9 +564,16 @@ export default function App() {
     setOcrBusy(true);
     setOcrStatus("Scanning image...");
     try {
-      const result = await Tesseract.recognize(file, "eng");
+      const result = await Tesseract.recognize(file, "eng", {
+        tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT,
+        tessedit_char_whitelist: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz:-# ",
+      });
       const found = normaliseJobNumber(result.data?.text || "");
-      setOcrStatus(found ? `Found job number: ${found}` : "No clear numeric job number found.");
+      setOcrStatus(
+        found
+          ? `Found likely job number: ${found}`
+          : "No likely 6 to 10 digit job number found. Try cropping closer to the over-run number.",
+      );
       if (found) setDraft((d) => ({ ...d, jobNumber: found }));
     } catch {
       setOcrStatus("OCR failed. Please type the job number manually.");
@@ -654,14 +708,8 @@ export default function App() {
           <StatsGrid>
             <Stat label="Band" value={bandLabel} />
             <Stat label="Base Rate" value={`£${settings.baseHourlyRate.toFixed(2)}/hr`} />
-            <Stat
-              label="Wkday / Sat"
-              value={`${(settings.weekdaySaturdayEnhancement * 100).toFixed(0)}%`}
-            />
-            <Stat
-              label="Sun / Holiday"
-              value={`${(settings.sundayHolidayEnhancement * 100).toFixed(0)}%`}
-            />
+            <Stat label="Wkday / Sat" value={`${(settings.weekdaySaturdayEnhancement * 100).toFixed(0)}%`} />
+            <Stat label="Sun / Holiday" value={`${(settings.sundayHolidayEnhancement * 100).toFixed(0)}%`} />
           </StatsGrid>
         </Section>
 
@@ -805,11 +853,7 @@ function SettingsSection({
                   onChange={(e) => updateTemplate(template.id, "rosteredEnd", e.target.value)}
                   style={styles.input}
                 />
-                <button
-                  type="button"
-                  style={styles.dangerButton}
-                  onClick={() => removeTemplate(template.id)}
-                >
+                <button type="button" style={styles.dangerButton} onClick={() => removeTemplate(template.id)}>
                   Delete
                 </button>
               </div>
@@ -956,10 +1000,7 @@ function ShiftFormSection({
   }
 
   return (
-    <Section
-      title={editingId ? "Edit Shift" : "Log Shift"}
-      right={<Badge>{editingId ? "Editing" : "New"}</Badge>}
-    >
+    <Section title={editingId ? "Edit Shift" : "Log Shift"} right={<Badge>{editingId ? "Editing" : "New"}</Badge>}>
       <div className="mb-4">
         <div className="mb-2 text-sm font-semibold">Shift Templates</div>
         <div className="grid gap-2 md:grid-cols-3">
@@ -978,73 +1019,32 @@ function ShiftFormSection({
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Field label="Date">
-          <input
-            type="date"
-            value={draft.date}
-            onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))}
-            style={styles.input}
-          />
+          <input type="date" value={draft.date} onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))} style={styles.input} />
         </Field>
         <Field label="Start">
-          <input
-            type="time"
-            value={draft.start}
-            onChange={(e) => setDraft((d) => ({ ...d, start: e.target.value }))}
-            style={styles.input}
-          />
+          <input type="time" value={draft.start} onChange={(e) => setDraft((d) => ({ ...d, start: e.target.value }))} style={styles.input} />
         </Field>
         <Field label="Rostered End">
-          <input
-            type="time"
-            value={draft.rosteredEnd}
-            onChange={(e) => setDraft((d) => ({ ...d, rosteredEnd: e.target.value }))}
-            style={styles.input}
-          />
+          <input type="time" value={draft.rosteredEnd} onChange={(e) => setDraft((d) => ({ ...d, rosteredEnd: e.target.value }))} style={styles.input} />
         </Field>
         <Field label="Actual End">
-          <input
-            type="time"
-            value={draft.end}
-            onChange={(e) => setDraft((d) => ({ ...d, end: e.target.value }))}
-            style={styles.input}
-          />
+          <input type="time" value={draft.end} onChange={(e) => setDraft((d) => ({ ...d, end: e.target.value }))} style={styles.input} />
         </Field>
         <Field label="Station">
-          <input
-            value={draft.station}
-            onChange={(e) => setDraft((d) => ({ ...d, station: e.target.value }))}
-            placeholder="Station"
-            style={styles.input}
-          />
+          <input value={draft.station} onChange={(e) => setDraft((d) => ({ ...d, station: e.target.value }))} placeholder="Station" style={styles.input} />
         </Field>
         <Field label="Vehicle Callsign">
-          <input
-            value={draft.vehicleCallsign}
-            onChange={(e) => setDraft((d) => ({ ...d, vehicleCallsign: e.target.value }))}
-            placeholder="e.g. H34"
-            style={styles.input}
-          />
+          <input value={draft.vehicleCallsign} onChange={(e) => setDraft((d) => ({ ...d, vehicleCallsign: e.target.value }))} placeholder="e.g. H34" style={styles.input} />
         </Field>
         <Field label="Crewmate">
-          <input
-            value={draft.crewmate}
-            onChange={(e) => setDraft((d) => ({ ...d, crewmate: e.target.value }))}
-            placeholder="Crewmate name"
-            style={styles.input}
-          />
+          <input value={draft.crewmate} onChange={(e) => setDraft((d) => ({ ...d, crewmate: e.target.value }))} placeholder="Crewmate name" style={styles.input} />
         </Field>
       </div>
 
       <div className="mt-3 grid gap-2 md:grid-cols-3">
-        <button type="button" onClick={() => addOvertimeMinutes(15)} style={styles.secondaryButton}>
-          +15 min OT
-        </button>
-        <button type="button" onClick={() => addOvertimeMinutes(30)} style={styles.secondaryButton}>
-          +30 min OT
-        </button>
-        <button type="button" onClick={() => addOvertimeMinutes(45)} style={styles.secondaryButton}>
-          +45 min OT
-        </button>
+        <button type="button" onClick={() => addOvertimeMinutes(15)} style={styles.secondaryButton}>+15 min OT</button>
+        <button type="button" onClick={() => addOvertimeMinutes(30)} style={styles.secondaryButton}>+30 min OT</button>
+        <button type="button" onClick={() => addOvertimeMinutes(45)} style={styles.secondaryButton}>+45 min OT</button>
       </div>
 
       {overtime > 0 && (
@@ -1053,10 +1053,8 @@ function ShiftFormSection({
             <input
               ref={jobInputRef}
               value={draft.jobNumber}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, jobNumber: e.target.value.replace(/[^0-9]/g, "") }))
-              }
-              placeholder="123456"
+              onChange={(e) => setDraft((d) => ({ ...d, jobNumber: e.target.value.replace(/[^0-9]/g, "") }))}
+              placeholder="12345678"
               inputMode="numeric"
               style={styles.input}
             />
@@ -1068,7 +1066,7 @@ function ShiftFormSection({
         <>
           <div className="mt-4 rounded-2xl border border-dashed border-slate-300 p-4">
             <div className="mb-2 text-sm font-semibold">OCR Scan Job Number</div>
-            <div className="mb-3 text-sm text-slate-600">Use your phone camera or upload a screenshot.</div>
+            <div className="mb-3 text-sm text-slate-600">Use your phone camera or upload a tight crop of the over-run number.</div>
             <label style={styles.uploadButton}>
               {ocrBusy ? "Scanning..." : "Open Camera / Upload"}
               <input
@@ -1103,20 +1101,13 @@ function ShiftFormSection({
         </button>
       </div>
 
-      <div className="mt-3 text-sm text-slate-600">
-        Meal break deduction: {formatMinutes(mealBreakMinutes(worked))}
-      </div>
+      <div className="mt-3 text-sm text-slate-600">Meal break deduction: {formatMinutes(mealBreakMinutes(worked))}</div>
 
       <StatsGrid small>
         <Stat label="Worked" value={formatMinutes(worked)} />
         <Stat label="Paid" value={formatMinutes(paid)} />
         <Stat label="Overtime" value={formatMinutes(overtime)} />
-        <Stat
-          label="Unsocial"
-          value={formatMinutes(
-            unsocial.unsocialWeekdaySaturdayMinutes + unsocial.unsocialSundayHolidayMinutes,
-          )}
-        />
+        <Stat label="Unsocial" value={formatMinutes(unsocial.unsocialWeekdaySaturdayMinutes + unsocial.unsocialSundayHolidayMinutes)} />
         <Stat label="Basic Pay" value={`£${basicPay.toFixed(2)}`} />
         <Stat label="Overtime Pay" value={`£${overtimePay.toFixed(2)}`} />
         <Stat label="Unsocial +" value={`£${unsocial.unsocialEnhancementPay.toFixed(2)}`} />
@@ -1129,9 +1120,7 @@ function ShiftFormSection({
         <button type="button" onClick={saveShift} style={styles.primaryButton}>
           {editingId ? "Update Shift" : "Save Shift"}
         </button>
-        <button type="button" onClick={resetForm} style={styles.secondaryButton}>
-          Reset
-        </button>
+        <button type="button" onClick={resetForm} style={styles.secondaryButton}>Reset</button>
       </div>
     </Section>
   );
@@ -1151,9 +1140,7 @@ function ExportSection({
   return (
     <Section title="Export Options">
       <div className="mb-4 grid gap-2 md:grid-cols-2">
-        <button type="button" onClick={exportBackup} style={styles.secondaryButton}>
-          Export Backup
-        </button>
+        <button type="button" onClick={exportBackup} style={styles.secondaryButton}>Export Backup</button>
         <label style={styles.uploadButtonBlock}>
           Import Backup
           <input
@@ -1169,12 +1156,8 @@ function ExportSection({
         </label>
       </div>
       <div className="grid gap-2 md:grid-cols-2">
-        <button type="button" onClick={exportPDF} style={styles.primaryButton}>
-          Export PDF
-        </button>
-        <button type="button" onClick={exportCSV} style={styles.secondaryButton}>
-          Export CSV
-        </button>
+        <button type="button" onClick={exportPDF} style={styles.primaryButton}>Export PDF</button>
+        <button type="button" onClick={exportCSV} style={styles.secondaryButton}>Export CSV</button>
       </div>
     </Section>
   );
@@ -1195,42 +1178,34 @@ function ShiftListSection({
     <Section title="Shifts">
       {shifts.length === 0 && <p className="text-sm text-slate-600">No shifts logged yet.</p>}
       <div className="grid gap-3">
-        {shifts.map((s) => (
-          <div key={s.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+        {shifts.map((shift) => (
+          <div key={shift.id} className="rounded-2xl border border-slate-200 bg-white p-4">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
-                <strong>{formatDate(s.date)}</strong>
-                <div className="text-sm text-slate-600">{`${s.start} - ${s.end}`}</div>
+                <strong>{formatDate(shift.date)}</strong>
+                <div className="text-sm text-slate-600">{`${shift.start} - ${shift.end}`}</div>
               </div>
-              <Badge>{`OT ${formatMinutes(s.overtimeMinutes)}`}</Badge>
+              <Badge>{`OT ${formatMinutes(shift.overtimeMinutes)}`}</Badge>
             </div>
+
             <div className="mb-3 grid gap-2 text-sm md:grid-cols-2 xl:grid-cols-4">
-              <div>{`Paid: ${formatMinutes(s.paidMinutes)}`}</div>
-              <div>{`Unsocial: ${formatMinutes(s.unsocialWeekdaySaturdayMinutes + s.unsocialSundayHolidayMinutes)}`}</div>
-              <div>{`Basic: £${s.basicPay.toFixed(2)}`}</div>
-              <div>{`OT Pay: £${s.overtimePay.toFixed(2)}`}</div>
-              <div>{`Enhancement: £${s.unsocialEnhancementPay.toFixed(2)}`}</div>
-              <div>{`Total: £${s.totalShiftPay.toFixed(2)}`}</div>
-              <div>{`Job: ${s.jobNumber || "-"}`}</div>
-              <div>{`Station: ${s.station || "-"}`}</div>
-              <div>{`Vehicle: ${s.vehicleCallsign || "-"}`}</div>
-              <div>{`Crewmate: ${s.crewmate || "-"}`}</div>
-              <div>{`Meal break off station: ${s.mealBreakOffStation ? "Yes" : "No"}`}</div>
+              <div>{`Paid: ${formatMinutes(shift.paidMinutes)}`}</div>
+              <div>{`Unsocial: ${formatMinutes(shift.unsocialWeekdaySaturdayMinutes + shift.unsocialSundayHolidayMinutes)}`}</div>
+              <div>{`Basic: £${shift.basicPay.toFixed(2)}`}</div>
+              <div>{`OT Pay: £${shift.overtimePay.toFixed(2)}`}</div>
+              <div>{`Enhancement: £${shift.unsocialEnhancementPay.toFixed(2)}`}</div>
+              <div>{`Total: £${shift.totalShiftPay.toFixed(2)}`}</div>
+              <div>{`Job: ${shift.jobNumber || "-"}`}</div>
+              <div>{`Station: ${shift.station || "-"}`}</div>
+              <div>{`Vehicle: ${shift.vehicleCallsign || "-"}`}</div>
+              <div>{`Crewmate: ${shift.crewmate || "-"}`}</div>
+              <div>{`Meal break off station: ${shift.mealBreakOffStation ? "Yes" : "No"}`}</div>
             </div>
+
             <div className="grid gap-2 md:grid-cols-3">
-              <button type="button" onClick={() => startEdit(s)} style={styles.secondaryButton}>
-                Edit
-              </button>
-              <button
-                type="button"
-                onClick={() => duplicateShiftToTomorrow(s)}
-                style={styles.secondaryButton}
-              >
-                Duplicate Tomorrow
-              </button>
-              <button type="button" onClick={() => deleteShift(s.id)} style={styles.dangerButton}>
-                Delete
-              </button>
+              <button type="button" onClick={() => startEdit(shift)} style={styles.secondaryButton}>Edit</button>
+              <button type="button" onClick={() => duplicateShiftToTomorrow(shift)} style={styles.secondaryButton}>Duplicate Tomorrow</button>
+              <button type="button" onClick={() => deleteShift(shift.id)} style={styles.dangerButton}>Delete</button>
             </div>
           </div>
         ))}
@@ -1307,11 +1282,7 @@ function StatsGrid({
   small?: boolean;
 }) {
   return (
-    <div
-      className={
-        small ? "mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4" : "grid gap-3 md:grid-cols-2 xl:grid-cols-4"
-      }
-    >
+    <div className={small ? "mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4" : "grid gap-3 md:grid-cols-2 xl:grid-cols-4"}>
       {children}
     </div>
   );
