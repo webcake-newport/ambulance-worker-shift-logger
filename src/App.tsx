@@ -66,9 +66,9 @@ type UnsocialSummary = {
   unsocialEnhancementPay: number;
 };
 
-const STORAGE_KEY = "awsl_clean_v17_shifts";
-const SETTINGS_KEY = "awsl_clean_v17_settings";
-const TEMPLATE_KEY = "awsl_clean_v17_templates";
+const STORAGE_KEY = "awsl_clean_v18_shifts";
+const SETTINGS_KEY = "awsl_clean_v18_settings";
+const TEMPLATE_KEY = "awsl_clean_v18_templates";
 const GRS_URL = "https://swast-web.grs.totalmobile-cloud.com/Frontend/Dashboard.aspx";
 
 const DEFAULT_SETTINGS: Settings = {
@@ -189,10 +189,7 @@ function getMonthKey(date = new Date()): string {
 
 function getMonthLabel(monthKey: string): string {
   const [y, m] = monthKey.split("-").map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString("en-GB", {
-    month: "long",
-    year: "numeric",
-  });
+  return new Date(y, m - 1, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 }
 
 function defaultDraft(): Draft {
@@ -385,10 +382,11 @@ function pdfRows(shifts: Shift[]) {
 
 function downloadBlob(blob: Blob, filename: string): void {
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
+  const href = URL.createObjectURL(blob);
+  a.href = href;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(a.href);
+  URL.revokeObjectURL(href);
 }
 
 function useStoredState<T>(key: string, fallback: T) {
@@ -567,9 +565,7 @@ export default function App() {
 
   function exportCSV() {
     downloadBlob(
-      new Blob([csvRows(shifts).map((r) => r.join(",")).join("\n")], {
-        type: "text/csv;charset=utf-8;",
-      }),
+      new Blob([csvRows(shifts).map((r) => r.join(",")).join("\n")], { type: "text/csv;charset=utf-8;" }),
       `ambulance-worker-shifts-${selectedMonth}.csv`,
     );
   }
@@ -585,11 +581,7 @@ export default function App() {
       14,
       24,
     );
-    autoTable(pdf, {
-      startY: 30,
-      head: [[...EXPORT_HEADERS]],
-      body: pdfRows(shifts),
-    });
+    autoTable(pdf, { startY: 30, head: [[...EXPORT_HEADERS]], body: pdfRows(shifts) });
     pdf.save(`ambulance-worker-shifts-${selectedMonth}.pdf`);
   }
 
@@ -601,8 +593,8 @@ export default function App() {
         : "Custom";
 
   return (
-    <div className="min-h-screen bg-slate-100 p-4 text-slate-900">
-      <div className="mx-auto max-w-7xl space-y-4">
+    <div className="min-h-screen bg-gradient-to-b from-slate-100 via-slate-100 to-slate-200 px-3 pb-28 pt-3 text-slate-900 sm:px-4">
+      <div className="mx-auto max-w-5xl space-y-4">
         <HeaderCard title="Ambulance Worker Shift Logger" />
 
         <div className="flex flex-wrap gap-2">
@@ -674,29 +666,27 @@ export default function App() {
 }
 
 function HeaderCard({ title }: { title: string }) {
+  const today = new Date().toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">{title}</h1>
+    <div className="sticky top-3 z-20 rounded-[28px] border border-slate-200/80 bg-white/95 p-4 shadow-lg shadow-slate-300/30 backdrop-blur">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{today}</div>
+          <h1 className="truncate text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">{title}</h1>
+          <p className="mt-1 text-sm text-slate-500">Fast shift logging built for mobile use.</p>
+        </div>
         <a
           href={GRS_URL}
           target="_blank"
           rel="noopener noreferrer"
           title="Open GRS Dashboard"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            width: 40,
-            height: 40,
-            borderRadius: 10,
-            border: "1px solid #cbd5e1",
-            background: "#fff",
-            textDecoration: "none",
-            color: "#0f172a",
-            fontSize: 18,
-            fontWeight: 700,
-          }}
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-xl shadow-sm transition hover:bg-slate-100"
+          style={{ textDecoration: "none" }}
         >
           🚑
         </a>
@@ -817,9 +807,7 @@ function SettingsSection({
             type="number"
             step="0.01"
             value={settings.baseHourlyRate}
-            onChange={(e) =>
-              setSettings((prev) => ({ ...prev, baseHourlyRate: Number(e.target.value) || 0 }))
-            }
+            onChange={(e) => setSettings((prev) => ({ ...prev, baseHourlyRate: Number(e.target.value) || 0 }))}
             style={styles.input}
           />
         </Field>
@@ -894,9 +882,7 @@ function ShiftFormSection({
   const jobInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    if (overtime > 0 && jobInputRef.current) {
-      jobInputRef.current.focus();
-    }
+    if (overtime > 0 && jobInputRef.current) jobInputRef.current.focus();
   }, [overtime]);
 
   function addOvertimeMinutes(minutes: number) {
@@ -914,12 +900,7 @@ function ShiftFormSection({
         <div className="mb-2 text-sm font-semibold">Shift Templates</div>
         <div className="grid gap-2 md:grid-cols-3">
           {templates.map((template) => (
-            <button
-              key={template.id}
-              type="button"
-              style={styles.secondaryButton}
-              onClick={() => applyTemplate(template)}
-            >
+            <button key={template.id} type="button" style={styles.secondaryButton} onClick={() => applyTemplate(template)}>
               {`${template.name} (${template.start}–${template.end})`}
             </button>
           ))}
@@ -1000,11 +981,13 @@ function ShiftFormSection({
 
       {error && <div className="mt-3 text-sm font-semibold text-red-700">{error}</div>}
 
-      <div className="mt-4 grid gap-2 md:grid-cols-2">
-        <button type="button" onClick={saveShift} style={styles.primaryButton}>
-          {editingId ? "Update Shift" : "Save Shift"}
-        </button>
-        <button type="button" onClick={resetForm} style={styles.secondaryButton}>Reset</button>
+      <div className="sticky bottom-3 z-20 mt-5 rounded-[24px] border border-slate-200/90 bg-white/95 p-3 shadow-xl shadow-slate-300/30 backdrop-blur">
+        <div className="grid gap-2 md:grid-cols-2">
+          <button type="button" onClick={saveShift} style={styles.primaryButton}>
+            {editingId ? "Update Shift" : "Save Shift"}
+          </button>
+          <button type="button" onClick={resetForm} style={styles.secondaryButton}>Reset</button>
+        </div>
       </div>
     </Section>
   );
@@ -1108,9 +1091,9 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="rounded-[28px] border border-slate-200/90 bg-white/95 p-4 shadow-lg shadow-slate-300/25 backdrop-blur sm:p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-2xl font-bold">{title}</h2>
+        <h2 className="text-xl font-black tracking-tight text-slate-900 sm:text-2xl">{title}</h2>
         {right}
       </div>
       {children}
@@ -1151,9 +1134,9 @@ function Stat({
   strong?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-      <div className="font-semibold">{label}</div>
-      <div className={strong ? "text-lg font-bold" : ""}>{value}</div>
+    <div className="rounded-2xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-4 text-sm shadow-sm">
+      <div className="mb-1 font-semibold text-slate-500">{label}</div>
+      <div className={strong ? "text-lg font-black text-slate-900" : "font-semibold text-slate-900"}>{value}</div>
     </div>
   );
 }
@@ -1173,5 +1156,9 @@ function StatsGrid({
 }
 
 function Badge({ children }: { children: React.ReactNode }) {
-  return <span className="whitespace-nowrap rounded-full bg-slate-200 px-3 py-1 text-xs">{children}</span>;
+  return (
+    <span className="whitespace-nowrap rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-slate-600">
+      {children}
+    </span>
+  );
 }
